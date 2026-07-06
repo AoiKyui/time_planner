@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const PlannerApp());
@@ -26,14 +27,14 @@ class SplitDashboard extends StatefulWidget {
 
 class _SplitDashboardState extends State<SplitDashboard> {
   // --- APP STATE (DATA) ---
-  final List<String> _priorities = [];
-  final List<bool> _priorityStates = [];
+  List<String> _priorities = [];
+  List<bool> _priorityStates = [];
 
-  final List<String> _todos = [];
-  final List<bool> _todoStates = [];
+  List<String> _todos = [];
+  List<bool> _todoStates = [];
 
-  final List<String> _scheduleTimes = [];
-  final List<String> _scheduleTasks = [];
+  List<String> _scheduleTimes = [];
+  List<String> _scheduleTasks = [];
 
   // Controllers for text inputs
   final TextEditingController _priorityInputController = TextEditingController();
@@ -46,12 +47,76 @@ class _SplitDashboardState extends State<SplitDashboard> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
   void dispose() {
     _priorityInputController.dispose();
     _todoInputController.dispose();
     _timeInputController.dispose();
     _scheduleTaskInputController.dispose();
     super.dispose();
+  }
+
+  // --- SAVE & LOAD LOGIC ---
+  Future<void> _loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _priorities = prefs.getStringList('priorities') ?? [];
+      _priorityStates = (prefs.getStringList('priorityStates') ?? [])
+          .map((e) => e == 'true')
+          .toList();
+
+      _todos = prefs.getStringList('todos') ?? [];
+      _todoStates = (prefs.getStringList('todoStates') ?? [])
+          .map((e) => e == 'true')
+          .toList();
+
+      _scheduleTimes = prefs.getStringList('scheduleTimes') ?? [];
+      _scheduleTasks = prefs.getStringList('scheduleTasks') ?? [];
+    });
+  }
+
+  Future<void> _saveData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('priorities', _priorities);
+    await prefs.setStringList('priorityStates', _priorityStates.map((e) => e.toString()).toList());
+
+    await prefs.setStringList('todos', _todos);
+    await prefs.setStringList('todoStates', _todoStates.map((e) => e.toString()).toList());
+
+    await prefs.setStringList('scheduleTimes', _scheduleTimes);
+    await prefs.setStringList('scheduleTasks', _scheduleTasks);
+  }
+
+  // Generic confirmation dialog wrapper for each section
+  void _confirmClearSection(String sectionName, VoidCallback onClear) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('⚠️ Clear $sectionName?'),
+          content: Text('Are you sure you want to permanently delete all items in the $sectionName section?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('CANCEL'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(onClear);
+                _saveData();
+                Navigator.of(context).pop();
+              },
+              child: const Text('CLEAR', style: TextStyle(color: Colors.redAccent)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -61,14 +126,11 @@ class _SplitDashboardState extends State<SplitDashboard> {
         title: const Text('📅 Daily Time Planner'),
         centerTitle: true,
       ),
-      // LayoutBuilder inspects the dimensions of whatever device screen opens the app
       body: LayoutBuilder(
         builder: (context, constraints) {
-          // If the width is narrow (like a phone screen), use mobile layout
           if (constraints.maxWidth < 600) {
             return _buildMobileLayout();
           } else {
-            // If the width is wide (desktop/tablet), keep the original side-by-side view
             return _buildTabletDesktopLayout();
           }
         },
@@ -108,7 +170,6 @@ class _SplitDashboardState extends State<SplitDashboard> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Left Column
               Expanded(
                 flex: 1,
                 child: Container(
@@ -128,7 +189,6 @@ class _SplitDashboardState extends State<SplitDashboard> {
                   ),
                 ),
               ),
-              // Right Column
               Expanded(
                 flex: 1,
                 child: Padding(
@@ -156,7 +216,19 @@ class _SplitDashboardState extends State<SplitDashboard> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text('🎯 TOP 3 PRIORITIES', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.amber)),
-            Text('${_priorities.length}/3', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+            Row(
+              children: [
+                Text('${_priorities.length}/3', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+                IconButton(
+                  icon: const Icon(Icons.delete_sweep, color: Colors.redAccent, size: 20),
+                  tooltip: 'Clear Priorities',
+                  onPressed: _priorities.isEmpty ? null : () => _confirmClearSection('Priorities', () {
+                    _priorities.clear();
+                    _priorityStates.clear();
+                  }),
+                ),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -181,6 +253,7 @@ class _SplitDashboardState extends State<SplitDashboard> {
                     _priorityStates.add(false);
                     _priorityInputController.clear();
                   });
+                  _saveData();
                 }
               } : null,
             ),
@@ -215,6 +288,7 @@ class _SplitDashboardState extends State<SplitDashboard> {
                             icon: Icon(_priorityStates[index] ? Icons.check_circle : Icons.radio_button_unchecked, color: _priorityStates[index] ? Colors.green : Colors.grey),
                             onPressed: () {
                               setState(() { _priorityStates[index] = !_priorityStates[index]; });
+                              _saveData();
                             },
                           ),
                           IconButton(
@@ -224,6 +298,7 @@ class _SplitDashboardState extends State<SplitDashboard> {
                                 _priorities.removeAt(index);
                                 _priorityStates.removeAt(index);
                               });
+                              _saveData();
                             },
                           ),
                         ],
@@ -240,7 +315,20 @@ class _SplitDashboardState extends State<SplitDashboard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('📝 TO-DO LIST', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('📝 TO-DO LIST', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
+            IconButton(
+              icon: const Icon(Icons.delete_sweep, color: Colors.redAccent, size: 20),
+              tooltip: 'Clear To-Do List',
+              onPressed: _todos.isEmpty ? null : () => _confirmClearSection('To-Do List', () {
+                _todos.clear();
+                _todoStates.clear();
+              }),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -259,6 +347,7 @@ class _SplitDashboardState extends State<SplitDashboard> {
                     _todoStates.add(false);
                     _todoInputController.clear();
                   });
+                  _saveData();
                 }
               },
             ),
@@ -279,6 +368,7 @@ class _SplitDashboardState extends State<SplitDashboard> {
                         activeColor: Colors.green,
                         onChanged: (val) {
                           setState(() { _todoStates[index] = val ?? false; });
+                          _saveData();
                         },
                       ),
                       Expanded(
@@ -288,22 +378,23 @@ class _SplitDashboardState extends State<SplitDashboard> {
                             fontSize: 14,
                             decoration: _todoStates[index] ? TextDecoration.lineThrough : null,
                             color: _todoStates[index] ? Colors.grey : null,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.grey, size: 18),
-                    onPressed: () {
-                      setState(() {
-                        _todos.removeAt(index);
-                        _todoStates.removeAt(index);
-                      });
-                    },
-                  ),
-                ],
-              );
-            }),
-          ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.grey, size: 18),
+                        onPressed: () {
+                          setState(() {
+                            _todos.removeAt(index);
+                            _todoStates.removeAt(index);
+                          });
+                          _saveData();
+                        },
+                      ),
+                    ],
+                  );
+                }),
+              ),
       ],
     );
   }
@@ -312,18 +403,31 @@ class _SplitDashboardState extends State<SplitDashboard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(Icons.alarm, color: Colors.blueAccent),
-            SizedBox(width: 8),
-            Text('SCHEDULE TIME', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            const Row(
+              children: [
+                Icon(Icons.alarm, color: Colors.blueAccent),
+                SizedBox(width: 8),
+                Text('SCHEDULE TIME', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+              ],
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_sweep, color: Colors.redAccent, size: 20),
+              tooltip: 'Clear Schedule',
+              onPressed: _scheduleTimes.isEmpty ? null : () => _confirmClearSection('Schedule', () {
+                _scheduleTimes.clear();
+                _scheduleTasks.clear();
+              }),
+            ),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
             SizedBox(
-              width: 80, 
+              width: 80,
               child: TextField(
                 controller: _timeInputController,
                 decoration: const InputDecoration(hintText: '12:00 PM', hintStyle: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -348,6 +452,7 @@ class _SplitDashboardState extends State<SplitDashboard> {
                     _timeInputController.clear();
                     _scheduleTaskInputController.clear();
                   });
+                  _saveData();
                 }
               },
             ),
@@ -375,6 +480,7 @@ class _SplitDashboardState extends State<SplitDashboard> {
                               _scheduleTimes.removeAt(index);
                               _scheduleTasks.removeAt(index);
                             });
+                            _saveData();
                           },
                         ),
                       ],
